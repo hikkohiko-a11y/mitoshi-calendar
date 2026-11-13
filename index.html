@@ -325,6 +325,7 @@ function openEdit(id,ds){
 
 /* ===== Googleカレンダー連携(読み込み専用・「こども予定」カレンダーだけ) ===== */
 const GKEY='mitoshi-gclient',GCACHE='mitoshi-gcache',GCAL='こども予定';
+const DEFAULT_CID='935073960582-9pbv1ukkv328r6cvhd3elr2ia37rgcc3.apps.googleusercontent.com';
 const gget=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 const gset=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}};
 let gEvents={};try{gEvents=JSON.parse(gget(GCACHE)||'{}')}catch(e){}
@@ -339,7 +340,7 @@ const loadGis=()=>new Promise((res,rej)=>{
   const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('gis'));document.head.appendChild(s);
 });
 async function gConnect(){
-  const cid=gget(GKEY);
+  const cid=gget(GKEY)||DEFAULT_CID;
   if(!cid){gStatus='さきに クライアントIDを いれてね';return false}
   try{await loadGis()}catch(e){gStatus='ネットに つながっていません';return false}
   return new Promise(res=>{
@@ -403,7 +404,7 @@ const gDlg=document.getElementById('gDlg');
 function openG(){
   gDlg.innerHTML=`<h2>📅 Googleカレンダーと つなぐ</h2>
    <p class="hint" style="margin-top:0">Googleカレンダーの「${GCAL}」という名前のカレンダーを、読むだけで つなぎます。アプリから Googleの予定を 変えることは ありません。</p>
-   <label>クライアントID<input id="gCid" value="${esc(gget(GKEY)||'')}" placeholder="xxxx.apps.googleusercontent.com"></label>
+   <label>クライアントID<input id="gCid" value="${esc(gget(GKEY)||DEFAULT_CID)}" placeholder="xxxx.apps.googleusercontent.com"></label>
    <p class="hint">${esc(gStatus||(gToken?'つながっています':'まだ つながっていません'))}</p>
    <div class="btns">
     <button class="btn pri" data-gsync>つなぐ / どうきする</button>
