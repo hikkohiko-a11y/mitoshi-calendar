@@ -339,15 +339,15 @@ const loadGis=()=>new Promise((res,rej)=>{
   if(window.google&&google.accounts&&google.accounts.oauth2)return res();
   const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('gis'));document.head.appendChild(s);
 });
-async function gConnect(){
+async function gConnect(silent){
   const cid=gget(GKEY)||DEFAULT_CID;
-  if(!cid){gStatus='さきに クライアントIDを いれてね';return false}
-  try{await loadGis()}catch(e){gStatus='ネットに つながっていません';return false}
+  if(!cid){if(!silent)gStatus='さきに クライアントIDを いれてね';return false}
+  try{await loadGis()}catch(e){if(!silent)gStatus='ネットに つながっていません';return false}
   return new Promise(res=>{
     const tc=google.accounts.oauth2.initTokenClient({client_id:cid,scope:'https://www.googleapis.com/auth/calendar.readonly',
-      callback:r=>{if(r.access_token){gToken=r.access_token;gExp=Date.now()+(r.expires_in-60)*1000;res(true)}else{gStatus='つながりませんでした';res(false)}},
-      error_callback:()=>{gStatus='つながりませんでした(ログインが とちゅうで とまりました)';res(false)}});
-    tc.requestAccessToken({prompt:''});
+      callback:r=>{if(r.access_token){gToken=r.access_token;gExp=Date.now()+(r.expires_in-60)*1000;gset('mitoshi-gon','1');res(true)}else{if(!silent)gStatus='つながりませんでした';res(false)}},
+      error_callback:()=>{if(!silent)gStatus='つながりませんでした(ログインが とちゅうで とまりました)';res(false)}});
+    tc.requestAccessToken({prompt:silent?'none':''});
   });
 }
 async function gApi(path){
@@ -360,11 +360,12 @@ function gRange(){
   const s=mode==='month'?weekStart(first):addDays(weekStart(cursor),-7);
   return [s,addDays(s,mode==='month'?42:21)];
 }
-async function gSync(){
+let gLastAt=0;
+async function gSync(silent){
   if(gBusy)return;
-  gBusy=true;
+  gBusy=true;gLastAt=Date.now();
   try{
-    if(!gToken||Date.now()>gExp){if(!await gConnect()){return}}
+    if(!gToken||Date.now()>gExp){if(!await gConnect(silent)){return}}
     if(!gCalId){
       const l=await gApi('users/me/calendarList?maxResults=250');
       const c=(l.items||[]).find(x=>(x.summary||'').includes(GCAL));
@@ -395,6 +396,11 @@ async function gSync(){
     if(String(err.message).includes('401')){gToken=null}
   }finally{gBusy=false;if(gDlg.open)openG()}
 }
+/* じどうどうき: ひらいたとき・もどったとき・5ふんごと(いちど つないだあとだけ) */
+function gSoft(){
+  if(!gget('mitoshi-gon')||gBusy||Date.now()-gLastAt<60000)return;
+  gSync(true);
+}
 function gAuto(){
   if(!gToken||Date.now()>gExp||!gCalId||gBusy)return;
   const [s,e]=gRange();
@@ -416,10 +422,10 @@ gDlg.onclick=e=>{
   if(e.target.closest('[data-close]'))return gDlg.close();
   if(e.target.closest('[data-gsync]')){
     const v=gDlg.querySelector('#gCid').value.trim();
-    gset(GKEY,v||null);gStatus='どうき ちゅう…';openG();gSync();return;
+    gset(GKEY,v||null);gStatus='どうき ちゅう…';openG();gSync(false);return;
   }
   if(e.target.closest('[data-goff]')){
-    gToken=null;gCalId=null;gEvents={};gLast='';gset(GCACHE,null);gStatus='つなぎを やめました';render();openG();
+    gToken=null;gCalId=null;gEvents={};gLast='';gset(GCACHE,null);gset('mitoshi-gon',null);gStatus='つなぎを やめました';render();openG();
   }
 };
 document.getElementById('btnG').onclick=openG;
@@ -427,8 +433,10 @@ document.getElementById('btnG').onclick=openG;
 /* 日付が変わったら自動で「きょう」を動かす */
 function tick(){const n=iso(new Date());if(n!==todayStr){todayStr=n;render()}}
 setInterval(tick,30000);
-document.addEventListener('visibilitychange',tick);
-window.addEventListener('focus',tick);
+setInterval(()=>{if(!document.hidden)gSoft()},300000);
+document.addEventListener('visibilitychange',()=>{tick();if(!document.hidden)gSoft()});
+window.addEventListener('focus',()=>{tick();gSoft()});
+setTimeout(gSoft,500);
 
 render();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http')){navigator.serviceWorker.register('sw.js').catch(()=>{})}
