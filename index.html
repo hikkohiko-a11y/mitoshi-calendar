@@ -53,6 +53,21 @@ header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 0 8px
 .tag.today{background:#f5b800;color:#4a3b32}
 .tag.tom{background:#e8493f} .tag.yes{background:#8fa3b8}
 
+/* スマホ: きのう・きょう・あした */
+.three{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:6px;margin:4px 0 12px;align-items:stretch}
+.tcard{display:flex;flex-direction:column;align-items:center;gap:4px;background:#fff;border:2px solid var(--line);border-radius:16px;padding:8px 4px;min-height:150px;text-align:center}
+.tcard.today{border:4px solid #f5b800;background:#fffbe0;box-shadow:0 0 0 3px #ffe680}
+.tcard.yes{opacity:.85}
+.tdate{font-weight:800;font-size:1.05rem;line-height:1.15}
+.cell .tag{white-space:nowrap}
+.tcard.today .tdate{font-size:1.3rem}
+.tchip{display:flex;flex-direction:column;align-items:center;background:#fff;border:2px solid var(--line);border-radius:12px;padding:4px 2px;width:100%}
+.te{font-size:2.2rem;line-height:1.1}
+.tcard.today .te{font-size:3.2rem}
+.tt{font-weight:800;font-size:.8rem;word-break:break-all}
+.tcard.today .tt{font-size:1rem}
+.tm{font-size:.7rem;opacity:.75}
+
 /* 今週の行だけ大きく */
 .cell.big{min-height:clamp(170px,48vw,300px);border-color:#ffd27a}
 .cell.big:not(.sat):not(.sun){background:#fffdf3}
@@ -185,10 +200,23 @@ const clsFor=d=>d.getDay()===6?'sat':d.getDay()===0?'sun':'';
 function render(){
   document.getElementById('tabMonth').classList.toggle('on',mode==='month');
   document.getElementById('tabWeek').classList.toggle('on',mode==='week');
-  document.getElementById('app').innerHTML=mode==='month'?renderMonth():renderWeek();
+  document.getElementById('app').innerHTML=mode==='month'?(threeStrip()+renderMonth()):renderWeek();
   gAuto();
 }
 
+const wideMQ=window.matchMedia('(min-width:700px)');
+const isWide=()=>wideMQ.matches;
+/* スマホ: きのう・きょう・あした だけ大きいカード */
+function threeStrip(){
+  if(isWide())return '';
+  const t=parse(todayStr);
+  return '<div class="three">'+[[-1,'きのう','yes'],[0,'きょう','today'],[1,'あした','tom']].map(([n,l,k])=>{
+    const d=addDays(t,n),ds=iso(d),ev=eventsOn(ds);
+    return `<button class="tcard ${k}" data-day="${ds}"><span class="tag ${k}" style="position:static">${l}</span>
+      <span class="tdate">${d.getMonth()+1}/${d.getDate()}<small style="display:block;font-size:.75em;white-space:nowrap">${WD[d.getDay()]}ようび</small></span>
+      ${ev.length?ev.map(e=>`<span class="tchip"><span class="te">${e.icon}</span><span class="tt">${esc(e.text)}</span>${e.memo?`<span class="tm">${esc(e.memo)}</span>`:''}</span>`).join(''):'<span class="empty">なし</span>'}</button>`;
+  }).join('')+'</div>';
+}
 function renderMonth(){
   const first=new Date(cursor.getFullYear(),cursor.getMonth(),1);
   const last=new Date(cursor.getFullYear(),cursor.getMonth()+1,0);
@@ -203,7 +231,7 @@ function renderMonth(){
   for(const d of days){
     const ds=iso(d),ev=eventsOn(ds),tg=tagFor(ds);
     const inM=d.getMonth()===first.getMonth();
-    const big=iso(weekStart(d))===iso(weekStart(parse(todayStr)));
+    const big=isWide()&&iso(weekStart(d))===iso(weekStart(parse(todayStr)));
     const shown=big
       ?ev.map(e=>`<span class="bchip"><span class="be">${e.icon}</span><span class="bt">${esc(e.text)}</span>${e.memo?`<span class="bm">${esc(e.memo)}</span>`:''}</span>`).join('')
       :ev.slice(0,3).map(e=>`<span>${e.icon}</span>`).join('');
@@ -453,6 +481,7 @@ setInterval(()=>{if(!document.hidden)gSoft()},300000);
 document.addEventListener('visibilitychange',()=>{tick();if(!document.hidden)gSoft()});
 window.addEventListener('focus',()=>{tick();gSoft()});
 setTimeout(gSoft,500);
+wideMQ.addEventListener('change',()=>render());
 
 render();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http')){navigator.serviceWorker.register('sw.js').catch(()=>{})}
