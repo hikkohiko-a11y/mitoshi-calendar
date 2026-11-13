@@ -100,12 +100,14 @@ input,select{font:inherit;width:100%;padding:9px 10px;border:2px solid var(--lin
 <header>
   <div class="tabs"><button id="tabMonth" class="on">つき</button><button id="tabWeek">しゅう</button></div>
   <div class="spacer"></div>
+  <button class="round" id="btnG" style="background:#dbe9ff;box-shadow:0 2px 0 #9bb8e8">📅 Google</button>
   <button class="round" id="btnToday">🌟 きょう</button>
 </header>
 <div id="app"></div>
 
 <dialog id="dayDlg"></dialog>
 <dialog id="editDlg"></dialog>
+<dialog id="gDlg"></dialog>
 
 <script>
 (()=>{
@@ -156,7 +158,7 @@ function occursOn(ev,ds){
   if(ev.repeat==='weekdays')return wd>=1&&wd<=5;
   return false;
 }
-const eventsOn=ds=>state.events.filter(e=>occursOn(e,ds));
+const eventsOn=ds=>state.events.filter(e=>occursOn(e,ds)).concat((gEvents[ds]||[]).map(g=>({...g,ro:true,repeat:'none'})));
 
 function tagFor(ds){
   const t=parse(todayStr);
@@ -171,6 +173,7 @@ function render(){
   document.getElementById('tabMonth').classList.toggle('on',mode==='month');
   document.getElementById('tabWeek').classList.toggle('on',mode==='week');
   document.getElementById('app').innerHTML=mode==='month'?renderMonth():renderWeek();
+  gAuto();
 }
 
 function renderMonth(){
@@ -242,7 +245,7 @@ const dayDlg=document.getElementById('dayDlg'),editDlg=document.getElementById('
 function openDay(ds){
   const d=parse(ds),ev=eventsOn(ds);
   dayDlg.innerHTML=`<h2>${d.getMonth()+1}がつ${d.getDate()}にち ${dayName(d)}</h2>
-   ${ev.length?ev.map(x=>`<button class="row" data-ev="${x.id}"><span class="e">${x.icon}</span><span><b>${esc(x.text)}</b>${x.memo?`<br><small>${esc(x.memo)}</small>`:''}${x.repeat!=='none'?`<br><small>🔁 ${x.repeat==='weekly'?'まいしゅう':'へいじつ'}</small>`:''}</span></button>`).join(''):'<p class="empty">まだ よていが ありません</p>'}
+   ${ev.length?ev.map(x=>`<button class="row" ${x.ro?'':`data-ev="${x.id}"`}><span class="e">${x.icon}</span><span><b>${esc(x.text)}</b>${x.memo?`<br><small>${esc(x.memo)}</small>`:''}${x.ro?'<br><small>📅 Googleカレンダー</small>':''}${x.repeat!=='none'?`<br><small>🔁 ${x.repeat==='weekly'?'まいしゅう':'へいじつ'}</small>`:''}</span></button>`).join(''):'<p class="empty">まだ よていが ありません</p>'}
    <div class="btns">
      <button class="btn pri" data-add>＋ よていを たす</button>
      <button class="btn blue" data-shift>このひから ぜんぶ 1にち ずらす</button>
@@ -319,6 +322,106 @@ function openEdit(id,ds){
   };
   editDlg.showModal();
 }
+
+/* ===== Googleカレンダー連携(読み込み専用・「こども予定」カレンダーだけ) ===== */
+const GKEY='mitoshi-gclient',GCACHE='mitoshi-gcache',GCAL='こども予定';
+const gget=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+const gset=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}};
+let gEvents={};try{gEvents=JSON.parse(gget(GCACHE)||'{}')}catch(e){}
+let gToken=null,gExp=0,gStatus='',gCalId=null,gLast='',gBusy=false;
+const G_ICONS=[['保育園|ほいくえん|幼稚園','🏫'],['歯|はいしゃ','🦷'],['病院|びょういん|クリニック|医院|小児科','🏥'],['キャンプ','⛺'],
+ ['誕生日|たんじょうび','🎂'],['買い物|かいもの','🛒'],['プール|水泳','🏊'],['習い事|おけいこ|ピアノ|教室','🎵'],['電車|でんしゃ','🚃'],
+ ['遊園地|ディズニー|USJ|ゆうえんち','🎡'],['ご飯|ランチ|ディナー|外食','🍽️'],['おばあちゃん|じいじ|ばあば|実家','👵'],
+ ['遊び|あそび','🎈'],['お出かけ|おでかけ|旅行|ドライブ','🚗'],['おうち|在宅','🏠']];
+const gIcon=t=>{for(const[r,i]of G_ICONS)if(new RegExp(r).test(t))return i;return '🎉'};
+const loadGis=()=>new Promise((res,rej)=>{
+  if(window.google&&google.accounts&&google.accounts.oauth2)return res();
+  const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('gis'));document.head.appendChild(s);
+});
+async function gConnect(){
+  const cid=gget(GKEY);
+  if(!cid){gStatus='さきに クライアントIDを いれてね';return false}
+  try{await loadGis()}catch(e){gStatus='ネットに つながっていません';return false}
+  return new Promise(res=>{
+    const tc=google.accounts.oauth2.initTokenClient({client_id:cid,scope:'https://www.googleapis.com/auth/calendar.readonly',
+      callback:r=>{if(r.access_token){gToken=r.access_token;gExp=Date.now()+(r.expires_in-60)*1000;res(true)}else{gStatus='つながりませんでした';res(false)}},
+      error_callback:()=>{gStatus='つながりませんでした(ログインが とちゅうで とまりました)';res(false)}});
+    tc.requestAccessToken({prompt:''});
+  });
+}
+async function gApi(path){
+  const r=await fetch('https://www.googleapis.com/calendar/v3/'+path,{headers:{Authorization:'Bearer '+gToken}});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
+}
+function gRange(){
+  const first=new Date(cursor.getFullYear(),cursor.getMonth(),1);
+  const s=mode==='month'?weekStart(first):addDays(weekStart(cursor),-7);
+  return [s,addDays(s,mode==='month'?42:21)];
+}
+async function gSync(){
+  if(gBusy)return;
+  gBusy=true;
+  try{
+    if(!gToken||Date.now()>gExp){if(!await gConnect()){return}}
+    if(!gCalId){
+      const l=await gApi('users/me/calendarList?maxResults=250');
+      const c=(l.items||[]).find(x=>(x.summary||'').includes(GCAL));
+      if(!c){gStatus=`「${GCAL}」という名前の カレンダーが みつかりません`;return}
+      gCalId=c.id;
+    }
+    const [s,e]=gRange();
+    gLast=iso(s)+iso(e);
+    const q=`singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(s.toISOString())}&timeMax=${encodeURIComponent(e.toISOString())}`;
+    const j=await gApi(`calendars/${encodeURIComponent(gCalId)}/events?${q}`);
+    for(let d=new Date(s);d<e;d=addDays(d,1))delete gEvents[iso(d)];
+    for(const ev of j.items||[]){
+      if(ev.status==='cancelled')continue;
+      const title=ev.summary||'よてい';
+      const base={id:'g:'+ev.id,icon:gIcon(title),text:title};
+      if(ev.start.date){
+        for(let d=parse(ev.start.date);d<parse(ev.end.date);d=addDays(d,1))(gEvents[iso(d)]=gEvents[iso(d)]||[]).push({...base,memo:''});
+      }else if(ev.start.dateTime){
+        const st=new Date(ev.start.dateTime);
+        (gEvents[iso(st)]=gEvents[iso(st)]||[]).push({...base,memo:`${st.getHours()}:${pad(st.getMinutes())}〜`});
+      }
+    }
+    gset(GCACHE,JSON.stringify(gEvents));
+    gStatus='どうき できました ('+(j.items||[]).length+'けん) '+new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+    render();
+  }catch(err){
+    gStatus='うまく よめませんでした: '+err.message;
+    if(String(err.message).includes('401')){gToken=null}
+  }finally{gBusy=false;if(gDlg.open)openG()}
+}
+function gAuto(){
+  if(!gToken||Date.now()>gExp||!gCalId||gBusy)return;
+  const [s,e]=gRange();
+  if(gLast!==iso(s)+iso(e))gSync();
+}
+const gDlg=document.getElementById('gDlg');
+function openG(){
+  gDlg.innerHTML=`<h2>📅 Googleカレンダーと つなぐ</h2>
+   <p class="hint" style="margin-top:0">Googleカレンダーの「${GCAL}」という名前のカレンダーを、読むだけで つなぎます。アプリから Googleの予定を 変えることは ありません。</p>
+   <label>クライアントID<input id="gCid" value="${esc(gget(GKEY)||'')}" placeholder="xxxx.apps.googleusercontent.com"></label>
+   <p class="hint">${esc(gStatus||(gToken?'つながっています':'まだ つながっていません'))}</p>
+   <div class="btns">
+    <button class="btn pri" data-gsync>つなぐ / どうきする</button>
+    <button class="btn warn" data-goff>つなぎを やめる</button>
+    <button class="btn" data-close>とじる</button></div>`;
+  if(!gDlg.open)gDlg.showModal();
+}
+gDlg.onclick=e=>{
+  if(e.target.closest('[data-close]'))return gDlg.close();
+  if(e.target.closest('[data-gsync]')){
+    const v=gDlg.querySelector('#gCid').value.trim();
+    gset(GKEY,v||null);gStatus='どうき ちゅう…';openG();gSync();return;
+  }
+  if(e.target.closest('[data-goff]')){
+    gToken=null;gCalId=null;gEvents={};gLast='';gset(GCACHE,null);gStatus='つなぎを やめました';render();openG();
+  }
+};
+document.getElementById('btnG').onclick=openG;
 
 /* 日付が変わったら自動で「きょう」を動かす */
 function tick(){const n=iso(new Date());if(n!==todayStr){todayStr=n;render()}}
