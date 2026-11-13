@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#ff8fab">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="みとおし">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<title>みとおしカレンダー</title>
+<style>
+:root{
+  --bg:#fff8ef; --ink:#4a3b32; --card:#ffffff; --line:#f1dfc9;
+  --pink:#ff8fab; --orange:#ff9f43; --yellow:#ffd93d; --green:#6bcB77; --blue:#4d96ff;
+  --sat:#e8f1ff; --sun:#ffeadf; --today:#ffd93d;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Hiragino Maru Gothic ProN","BIZ UDPGothic","Yu Gothic UI","Meiryo",sans-serif;
+  padding:env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 16px);max-width:1100px;margin:0 auto}
+button{font:inherit;color:inherit;cursor:pointer}
+header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 0 8px}
+.tabs{display:flex;background:#ffe3ea;border-radius:999px;padding:4px;gap:4px}
+.tabs button{border:0;background:transparent;padding:8px 18px;border-radius:999px;font-weight:700;font-size:1.05rem}
+.tabs button.on{background:var(--pink);color:#fff;box-shadow:0 2px 0 #e56f8f}
+.spacer{flex:1}
+.round{border:0;background:var(--yellow);border-radius:999px;padding:8px 16px;font-weight:700;box-shadow:0 2px 0 #d9b414}
+.nav{display:flex;align-items:center;gap:10px;margin:4px 0 10px}
+.nav .title{flex:1;text-align:center}
+.nav .big{font-size:2.2rem;font-weight:800;line-height:1.1}
+.nav .small{font-size:.9rem;opacity:.7}
+.arrow{border:0;background:#fff;border-radius:50%;width:46px;height:46px;font-size:1.3rem;box-shadow:0 2px 0 var(--line);border:2px solid var(--line)}
+.quick{display:flex;gap:8px;justify-content:center;margin-bottom:10px;flex-wrap:wrap}
+.quick button{border:2px solid var(--line);background:#fff;border-radius:999px;padding:6px 16px;font-weight:700}
+.quick button.on{background:var(--orange);color:#fff;border-color:var(--orange)}
+
+/* month */
+.dow,.mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dow div{text-align:center;font-weight:800;padding:6px 0;border-radius:10px 10px 0 0;font-size:clamp(.7rem,2.6vw,1rem);color:#fff}
+.dow .d0,.dow .d1,.dow .d2,.dow .d3,.dow .d4{background:var(--green)}
+.dow .d5{background:var(--blue)} .dow .d6{background:var(--orange)}
+.cell{position:relative;background:var(--card);border:2px solid var(--line);border-radius:12px;min-height:calc((100vw - 24px)/7*1.25);
+  padding:4px;text-align:left;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+@media(min-width:700px){.cell{min-height:110px;padding:6px}}
+.cell.sat{background:var(--sat)} .cell.sun{background:var(--sun)}
+.cell.other{opacity:.4}
+.cell .num{font-weight:800;font-size:clamp(1rem,4vw,1.6rem);line-height:1}
+.cell .ic{display:flex;flex-wrap:wrap;gap:0;font-size:clamp(1.1rem,5vw,2rem);line-height:1.15}
+.cell .more{font-size:.75rem;opacity:.7;align-self:flex-end}
+.cell.today{border:4px solid #f5b800;background:#fffbe0;box-shadow:0 0 0 3px #ffe680}
+.tag{position:absolute;right:3px;top:3px;font-size:clamp(.55rem,2.2vw,.8rem);font-weight:800;color:#fff;padding:1px 6px;border-radius:999px}
+.tag.today{background:#f5b800;color:#4a3b32}
+.tag.tom{background:#e8493f} .tag.yes{background:#8fa3b8}
+
+/* week */
+.wgrid{display:grid;grid-template-columns:1fr;gap:8px}
+@media(min-width:800px){.wgrid{grid-template-columns:repeat(7,1fr)}}
+.wcard{position:relative;background:var(--card);border:2px solid var(--line);border-radius:18px;padding:10px 12px;text-align:left;
+  display:flex;flex-direction:row;gap:12px;align-items:center;min-height:96px}
+@media(min-width:800px){.wcard{flex-direction:column;align-items:stretch;min-height:340px;padding:10px 8px}}
+.wcard.sat{background:var(--sat)} .wcard.sun{background:var(--sun)}
+.wcard.today{border:5px solid #f5b800;background:#fffbe0;box-shadow:0 0 0 4px #ffe680}
+.whead{min-width:84px;text-align:center}
+.whead .wd{font-weight:800;font-size:1.05rem}
+.whead .dn{font-size:2rem;font-weight:800;line-height:1}
+.wbody{flex:1;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+@media(min-width:800px){.wbody{flex-direction:column;flex-wrap:nowrap;align-items:center;justify-content:flex-start}}
+.chip{display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border:2px solid var(--line);border-radius:16px;padding:6px 8px;min-width:86px}
+.chip .e{font-size:2.8rem;line-height:1.1}
+.chip .t{font-weight:800;font-size:.95rem}
+.chip .m{font-size:.8rem;opacity:.75}
+.empty{opacity:.35;font-weight:700}
+.wcard .char{position:absolute;left:6px;top:-18px;font-size:2.2rem;animation:hop 1.2s ease-in-out infinite}
+@media(min-width:800px){.wcard .char{left:auto;right:6px;top:-22px}}
+@keyframes hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+/* dialogs */
+dialog{border:0;border-radius:22px;padding:18px;max-width:min(480px,94vw);width:100%;background:#fff;color:var(--ink);box-shadow:0 10px 40px #0004}
+dialog::backdrop{background:#0006}
+dialog h2{margin:0 0 10px;font-size:1.3rem}
+.row{display:flex;align-items:center;gap:10px;background:#fff8ef;border:2px solid var(--line);border-radius:14px;padding:8px 12px;margin-bottom:8px;width:100%;text-align:left}
+.row .e{font-size:2rem}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btn{border:0;border-radius:999px;padding:10px 16px;font-weight:800;background:#eee}
+.btn.pri{background:var(--pink);color:#fff;box-shadow:0 2px 0 #e56f8f}
+.btn.ok{background:var(--green);color:#fff}
+.btn.warn{background:#ffe3e0;color:#c0392b}
+.btn.blue{background:#dbe9ff;color:#1f5fbf}
+.picker{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}
+.picker button{border:3px solid var(--line);background:#fff;border-radius:14px;padding:6px 2px;display:flex;flex-direction:column;align-items:center}
+.picker button.on{border-color:var(--pink);background:#fff0f4}
+.picker .e{font-size:1.8rem;line-height:1.1}.picker .t{font-size:.65rem;font-weight:700}
+label{display:block;font-weight:700;font-size:.9rem;margin-top:8px}
+input,select{font:inherit;width:100%;padding:9px 10px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink)}
+.hint{font-size:.8rem;opacity:.7;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="tabs"><button id="tabMonth" class="on">つき</button><button id="tabWeek">しゅう</button></div>
+  <div class="spacer"></div>
+  <button class="round" id="btnToday">🌟 きょう</button>
+</header>
+<div id="app"></div>
+
+<dialog id="dayDlg"></dialog>
+<dialog id="editDlg"></dialog>
+
+<script>
+(()=>{
+const ICONS=[
+ ['🏫','ほいくえん'],['🏠','おうち'],['🚗','おでかけ'],['🏥','びょういん'],
+ ['🦷','はいしゃさん'],['🎈','あそびにくる'],['⛺','キャンプ'],['🎂','おたんじょうび'],
+ ['🛒','おかいもの'],['👵','おばあちゃん'],['🏊','プール'],['🎵','おけいこ'],
+ ['🍽️','おそとごはん'],['🚃','でんしゃ'],['🎡','ゆうえんち'],['🎉','イベント']
+];
+const WD=['にち','げつ','か','すい','もく','きん','ど'];
+const KEY='mitoshi-calendar-v1';
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parse=s=>{const[a,b,c]=s.split('-').map(Number);return new Date(a,b-1,c)};
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const weekStart=d=>addDays(d,-((d.getDay()+6)%7));
+const dayName=d=>WD[d.getDay()]+'ようび';
+
+let mem=null;
+function load(){
+  try{const s=localStorage.getItem(KEY);if(s)return JSON.parse(s)}catch(e){}
+  return mem;
+}
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+  mem=state;
+}
+let state=load();
+if(!state){
+  const t=new Date();
+  state={events:[
+    {id:'s1',date:iso(weekStart(t)),icon:'🏫',text:'ほいくえん',memo:'',repeat:'weekdays',skip:[]},
+    {id:'s2',date:iso(addDays(t,3)),icon:'🦷',text:'はいしゃさん',memo:'',repeat:'none',skip:[]}
+  ]};
+  save();
+}
+
+let todayStr=iso(new Date());
+let mode='month';
+let cursor=new Date();
+
+function occursOn(ev,ds){
+  if(ev.skip&&ev.skip.includes(ds))return false;
+  if(ev.repeat==='none')return ev.date===ds;
+  if(ds<ev.date)return false;
+  const wd=parse(ds).getDay();
+  if(ev.repeat==='weekly')return parse(ev.date).getDay()===wd;
+  if(ev.repeat==='weekdays')return wd>=1&&wd<=5;
+  return false;
+}
+const eventsOn=ds=>state.events.filter(e=>occursOn(e,ds));
+
+function tagFor(ds){
+  const t=parse(todayStr);
+  if(ds===todayStr)return['today','きょう'];
+  if(ds===iso(addDays(t,1)))return['tom','あした'];
+  if(ds===iso(addDays(t,-1)))return['yes','きのう'];
+  return null;
+}
+const clsFor=d=>d.getDay()===6?'sat':d.getDay()===0?'sun':'';
+
+function render(){
+  document.getElementById('tabMonth').classList.toggle('on',mode==='month');
+  document.getElementById('tabWeek').classList.toggle('on',mode==='week');
+  document.getElementById('app').innerHTML=mode==='month'?renderMonth():renderWeek();
+}
+
+function renderMonth(){
+  const first=new Date(cursor.getFullYear(),cursor.getMonth(),1);
+  const last=new Date(cursor.getFullYear(),cursor.getMonth()+1,0);
+  const start=weekStart(first);
+  const days=[];
+  for(let d=start;d<=last||d.getDay()!==1;d=addDays(d,1))days.push(d);
+  const reiwa=first.getFullYear()-2018;
+  let h=`<div class="nav"><button class="arrow" data-a="prev">◀</button>
+   <div class="title"><div class="big">${first.getMonth()+1}がつ</div><div class="small">れいわ${reiwa}ねん ${first.getFullYear()}</div></div>
+   <button class="arrow" data-a="next">▶</button></div>`;
+  h+='<div class="dow">'+['げつ','か','すい','もく','きん','ど','にち'].map((w,i)=>`<div class="d${i}">${w}</div>`).join('')+'</div><div class="mgrid">';
+  for(const d of days){
+    const ds=iso(d),ev=eventsOn(ds),tg=tagFor(ds);
+    const inM=d.getMonth()===first.getMonth();
+    const shown=ev.slice(0,3).map(e=>`<span>${e.icon}</span>`).join('');
+    h+=`<button class="cell ${clsFor(d)} ${inM?'':'other'} ${ds===todayStr?'today':''}" data-day="${ds}">
+      ${tg?`<span class="tag ${tg[0]}">${tg[1]}</span>`:''}
+      <span class="num">${d.getDate()}</span>
+      <span class="ic">${shown}</span>${ev.length>3?`<span class="more">+${ev.length-3}</span>`:''}</button>`;
+  }
+  return h+'</div>';
+}
+
+function renderWeek(){
+  const s=weekStart(cursor),e=addDays(s,6);
+  const thisW=iso(weekStart(new Date()));
+  const diff=Math.round((s-weekStart(new Date()))/604800000);
+  let h=`<div class="nav"><button class="arrow" data-a="prev">◀</button>
+   <div class="title"><div class="big">${s.getMonth()+1}/${s.getDate()} 〜 ${e.getMonth()+1}/${e.getDate()}</div></div>
+   <button class="arrow" data-a="next">▶</button></div>
+   <div class="quick">
+    <button data-w="-1" class="${diff===-1?'on':''}">せんしゅう</button>
+    <button data-w="0" class="${diff===0?'on':''}">こんしゅう</button>
+    <button data-w="1" class="${diff===1?'on':''}">らいしゅう</button></div><div class="wgrid">`;
+  for(let i=0;i<7;i++){
+    const d=addDays(s,i),ds=iso(d),ev=eventsOn(ds),tg=tagFor(ds);
+    h+=`<button class="wcard ${clsFor(d)} ${ds===todayStr?'today':''}" data-day="${ds}">
+      ${ds===todayStr?'<span class="char">🐻</span>':''}
+      <div class="whead"><div class="wd">${dayName(d)}</div><div class="dn">${d.getDate()}</div>
+      ${tg?`<span class="tag ${tg[0]}" style="position:static;display:inline-block;margin-top:4px">${tg[1]}</span>`:''}</div>
+      <div class="wbody">${ev.length?ev.map(x=>`<div class="chip"><div class="e">${x.icon}</div><div class="t">${esc(x.text)}</div>${x.memo?`<div class="m">${esc(x.memo)}</div>`:''}</div>`).join(''):'<div class="empty">なし</div>'}</div></button>`;
+  }
+  return h+'</div>';
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* events */
+document.getElementById('app').addEventListener('click',e=>{
+  const a=e.target.closest('[data-a]');
+  if(a){
+    const n=a.dataset.a==='next'?1:-1;
+    if(mode==='month')cursor=new Date(cursor.getFullYear(),cursor.getMonth()+n,1);
+    else cursor=addDays(cursor,7*n);
+    return render();
+  }
+  const w=e.target.closest('[data-w]');
+  if(w){cursor=addDays(new Date(),7*Number(w.dataset.w));return render()}
+  const d=e.target.closest('[data-day]');
+  if(d)openDay(d.dataset.day);
+});
+document.getElementById('tabMonth').onclick=()=>{mode='month';render()};
+document.getElementById('tabWeek').onclick=()=>{mode='week';render()};
+document.getElementById('btnToday').onclick=()=>{cursor=new Date();render()};
+
+/* day sheet */
+const dayDlg=document.getElementById('dayDlg'),editDlg=document.getElementById('editDlg');
+function openDay(ds){
+  const d=parse(ds),ev=eventsOn(ds);
+  dayDlg.innerHTML=`<h2>${d.getMonth()+1}がつ${d.getDate()}にち ${dayName(d)}</h2>
+   ${ev.length?ev.map(x=>`<button class="row" data-ev="${x.id}"><span class="e">${x.icon}</span><span><b>${esc(x.text)}</b>${x.memo?`<br><small>${esc(x.memo)}</small>`:''}${x.repeat!=='none'?`<br><small>🔁 ${x.repeat==='weekly'?'まいしゅう':'へいじつ'}</small>`:''}</span></button>`).join(''):'<p class="empty">まだ よていが ありません</p>'}
+   <div class="btns">
+     <button class="btn pri" data-add>＋ よていを たす</button>
+     <button class="btn blue" data-shift>このひから ぜんぶ 1にち ずらす</button>
+     <button class="btn" data-close>とじる</button>
+   </div>`;
+  dayDlg.onclick=e=>{
+    if(e.target.closest('[data-close]'))return dayDlg.close();
+    if(e.target.closest('[data-add]')){dayDlg.close();return openEdit(null,ds)}
+    if(e.target.closest('[data-shift]')){
+      if(confirm(`${d.getMonth()+1}/${d.getDate()} いこうの 1かいだけの よていを ぜんぶ 1にち うしろに ずらします。よいですか？\n（まいしゅう・へいじつの くりかえしは そのままです）`)){
+        state.events.forEach(x=>{if(x.repeat==='none'&&x.date>=ds)x.date=iso(addDays(parse(x.date),1))});
+        save();dayDlg.close();render();
+      }
+      return;
+    }
+    const r=e.target.closest('[data-ev]');
+    if(r){dayDlg.close();openEdit(r.dataset.ev,ds)}
+  };
+  dayDlg.showModal();
+}
+
+/* edit */
+function openEdit(id,ds){
+  const ev=id?state.events.find(x=>x.id===id):null;
+  let icon=ev?ev.icon:ICONS[0][0];
+  const rep=ev?ev.repeat:'none';
+  editDlg.innerHTML=`<h2>${ev?'よていを なおす':'よていを たす'}</h2>
+   <div class="picker">${ICONS.map(([e,t])=>`<button data-i="${e}" data-t="${t}" class="${e===icon?'on':''}"><span class="e">${e}</span><span class="t">${t}</span></button>`).join('')}</div>
+   <label>なまえ<input id="fText" value="${esc(ev?ev.text:ICONS[0][1])}"></label>
+   <label>ひとこと メモ<input id="fMemo" value="${esc(ev?ev.memo:'')}" placeholder="れい：おくすりを もっていく"></label>
+   <label>${ev&&rep!=='none'?'はじまりの ひ':'ひにち'}<input type="date" id="fDate" value="${ev?ev.date:ds}"></label>
+   <label>くりかえし<select id="fRep">
+     <option value="none">なし（そのひだけ）</option>
+     <option value="weekly">まいしゅう おなじ ようび</option>
+     <option value="weekdays">へいじつ まいにち（げつ〜きん）</option></select></label>
+   ${ev&&rep!=='none'?'<div class="hint">くりかえしの よていです。このひだけ かえるときは したの ボタンを つかってね。</div>':''}
+   <div class="btns">
+    <button class="btn pri" data-save>ほぞん</button>
+    ${ev?'<button class="btn blue" data-next>あしたへ うつす</button>':''}
+    ${ev&&rep!=='none'?'<button class="btn blue" data-skip>このひだけ なし</button>':''}
+    ${ev?'<button class="btn warn" data-del>けす</button>':''}
+    <button class="btn" data-close>キャンセル</button></div>`;
+  editDlg.querySelector('#fRep').value=rep;
+  editDlg.onclick=e=>{
+    const p=e.target.closest('.picker button');
+    if(p){
+      const t=editDlg.querySelector('#fText');
+      const old=ICONS.find(x=>x[0]===icon);
+      if(!t.value||(old&&t.value===old[1]))t.value=p.dataset.t;
+      icon=p.dataset.i;
+      editDlg.querySelectorAll('.picker button').forEach(b=>b.classList.toggle('on',b===p));
+      return;
+    }
+    if(e.target.closest('[data-close]'))return editDlg.close();
+    if(e.target.closest('[data-save]')){
+      const date=editDlg.querySelector('#fDate').value||ds;
+      const data={icon,text:editDlg.querySelector('#fText').value.trim()||'よてい',memo:editDlg.querySelector('#fMemo').value.trim(),
+        date,repeat:editDlg.querySelector('#fRep').value};
+      if(ev)Object.assign(ev,data);else state.events.push({id:'e'+Date.now()+Math.random().toString(36).slice(2,5),skip:[],...data});
+      save();editDlg.close();render();return;
+    }
+    if(e.target.closest('[data-next]')){
+      const nd=iso(addDays(parse(ds),1));
+      if(ev.repeat==='none')ev.date=nd;
+      else{ev.skip=ev.skip||[];ev.skip.push(ds);state.events.push({id:'e'+Date.now(),skip:[],icon:ev.icon,text:ev.text,memo:ev.memo,date:nd,repeat:'none'})}
+      save();editDlg.close();render();return;
+    }
+    if(e.target.closest('[data-skip]')){ev.skip=ev.skip||[];ev.skip.push(ds);save();editDlg.close();render();return}
+    if(e.target.closest('[data-del]')){
+      if(confirm(ev.repeat==='none'?'この よていを けします。よいですか？':'くりかえしの よていを ぜんぶ けします。よいですか？')){
+        state.events=state.events.filter(x=>x!==ev);save();editDlg.close();render();
+      }
+    }
+  };
+  editDlg.showModal();
+}
+
+/* 日付が変わったら自動で「きょう」を動かす */
+function tick(){const n=iso(new Date());if(n!==todayStr){todayStr=n;render()}}
+setInterval(tick,30000);
+document.addEventListener('visibilitychange',tick);
+window.addEventListener('focus',tick);
+
+render();
+if('serviceWorker' in navigator&&location.protocol.startsWith('http')){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+})();
+</script>
+</body>
+</html>
