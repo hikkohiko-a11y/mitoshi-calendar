@@ -53,13 +53,18 @@ header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 0 8px
 .tag.today{background:#f5b800;color:#4a3b32}
 .tag.tom{background:#e8493f} .tag.yes{background:#8fa3b8}
 
+/* 日曜日の欄の「せんしゅう・こんしゅう・らいしゅう」札 */
+.wk{margin-top:auto;display:block;text-align:center;white-space:nowrap;font-weight:800;border-radius:6px;padding:2px 1px;
+  font-size:clamp(.42rem,1.9vw,.85rem);color:#4a3b32;box-shadow:0 1px 0 #0002}
+.wk.wl{background:#ffc46b}.wk.wt{background:#d3ec5a}.wk.wn{background:#ff9ecb}
+
 /* スマホ: きのう・きょう・あした */
 .three{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:6px;margin:4px 0 12px;align-items:stretch}
 .tcard{display:flex;flex-direction:column;align-items:center;gap:4px;background:#fff;border:2px solid var(--line);border-radius:16px;padding:8px 4px;min-height:150px;text-align:center}
 .tcard.today{border:4px solid #f5b800;background:#fffbe0;box-shadow:0 0 0 3px #ffe680}
 .tcard.yes{opacity:.85}
 .tdate{font-weight:800;font-size:1.05rem;line-height:1.15}
-.cell .tag{white-space:nowrap}
+.cell .tag{white-space:nowrap;position:static;align-self:flex-start;font-size:clamp(.5rem,2vw,.8rem);padding:1px 4px}
 .tcard.today .tdate{font-size:1.3rem}
 .tchip{display:flex;flex-direction:column;align-items:center;background:#fff;border:2px solid var(--line);border-radius:12px;padding:4px 2px;width:100%}
 .te{font-size:2.2rem;line-height:1.1}
@@ -231,6 +236,8 @@ function renderMonth(){
   for(const d of days){
     const ds=iso(d),ev=eventsOn(ds),tg=tagFor(ds);
     const inM=d.getMonth()===first.getMonth();
+    const wd=Math.round((weekStart(d)-weekStart(parse(todayStr)))/604800000);
+    const wk=d.getDay()===0&&Math.abs(wd)<=1?[['wl','せんしゅう'],['wt','こんしゅう'],['wn','らいしゅう']][wd+1]:null;
     const big=isWide()&&iso(weekStart(d))===iso(weekStart(parse(todayStr)));
     const shown=big
       ?ev.map(e=>`<span class="bchip"><span class="be">${e.icon}</span><span class="bt">${esc(e.text)}</span>${e.memo?`<span class="bm">${esc(e.memo)}</span>`:''}</span>`).join('')
@@ -238,7 +245,7 @@ function renderMonth(){
     h+=`<button class="cell ${clsFor(d)} ${inM?'':'other'} ${ds===todayStr?'today':''} ${big?'big':''}" data-day="${ds}">
       ${tg?`<span class="tag ${tg[0]}">${tg[1]}</span>`:''}
       <span class="num">${d.getDate()}</span>
-      <span class="${big?'bwrap':'ic'}">${shown}</span>${!big&&ev.length>3?`<span class="more">+${ev.length-3}</span>`:''}</button>`;
+      <span class="${big?'bwrap':'ic'}">${shown}</span>${!big&&ev.length>3?`<span class="more">+${ev.length-3}</span>`:''}${wk?`<span class="wk ${wk[0]}">${wk[1]}</span>`:''}</button>`;
   }
   return h+'</div>';
 }
