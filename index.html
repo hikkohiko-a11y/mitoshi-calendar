@@ -127,6 +127,9 @@ dialog h2{margin:0 0 10px;font-size:1.3rem}
 label{display:block;font-weight:700;font-size:.9rem;margin-top:8px}
 input,select{font:inherit;width:100%;padding:9px 10px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink)}
 .hint{font-size:.8rem;opacity:.7;margin-top:6px}
+
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 24px);transform:translateX(-50%) translateY(20px);background:#4a3b32;color:#fff;padding:10px 18px;border-radius:999px;font-weight:700;font-size:.95rem;opacity:0;pointer-events:none;transition:.25s;z-index:99;max-width:90vw;text-align:center}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
@@ -191,7 +194,7 @@ function occursOn(ev,ds){
   if(ev.repeat==='weekdays')return wd>=1&&wd<=5;
   return false;
 }
-const eventsOn=ds=>state.events.filter(e=>occursOn(e,ds)).concat((gEvents[ds]||[]).map(g=>({...g,ro:true,repeat:'none'})));
+const eventsOn=ds=>state.events.filter(e=>occursOn(e,ds)).concat((gEvents[ds]||[]).map(g=>({repeat:'none',...g,g:true})));
 
 function tagFor(ds){
   const t=parse(todayStr);
@@ -291,12 +294,22 @@ document.getElementById('tabMonth').onclick=()=>{mode='month';render()};
 document.getElementById('tabWeek').onclick=()=>{mode='week';render()};
 document.getElementById('btnToday').onclick=()=>{cursor=new Date();render()};
 
-/* day sheet */
-const dayDlg=document.getElementById('dayDlg'),editDlg=document.getElementById('editDlg');
+/* ===== よていの ひょうじ / へんしゅう ===== */
+const dayDlg=document.getElementById('dayDlg'),editDlg=document.getElementById('editDlg'),gDlg=document.getElementById('gDlg');
+const enc=encodeURIComponent;
+const GMODE=()=>gget('mitoshi-gon')==='w';
+const findEv=(id,ds)=>eventsOn(ds).find(x=>x.id===id);
+let toastT;
+function toast(m){
+  let t=document.getElementById('toast');
+  if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}
+  t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),4000);
+}
+
 function openDay(ds){
   const d=parse(ds),ev=eventsOn(ds);
   dayDlg.innerHTML=`<h2>${d.getMonth()+1}がつ${d.getDate()}にち ${dayName(d)}</h2>
-   ${ev.length?ev.map(x=>`<button class="row" ${x.ro?'':`data-ev="${x.id}"`}><span class="e">${x.icon}</span><span><b>${esc(x.text)}</b>${x.memo?`<br><small>${esc(x.memo)}</small>`:''}${x.ro?'<br><small>📅 Googleカレンダー</small>':''}${x.repeat!=='none'?`<br><small>🔁 ${x.repeat==='weekly'?'まいしゅう':'へいじつ'}</small>`:''}</span></button>`).join(''):'<p class="empty">まだ よていが ありません</p>'}
+   ${ev.length?ev.map(x=>`<button class="row" data-ev="${x.id}"><span class="e">${x.icon}</span><span><b>${esc(x.text)}</b>${x.memo?`<br><small>${esc(x.memo)}</small>`:''}${x.g?'<br><small>📅 Google</small>':''}${x.rec?'<br><small>🔁 くりかえし</small>':''}${x.repeat!=='none'?`<br><small>🔁 ${x.repeat==='weekly'?'まいしゅう':'へいじつ'}</small>`:''}</span></button>`).join(''):'<p class="empty">まだ よていが ありません</p>'}
    <div class="btns">
      <button class="btn pri" data-add>＋ よていを たす</button>
      <button class="btn blue" data-shift>このひから ぜんぶ 1にち ずらす</button>
@@ -305,45 +318,72 @@ function openDay(ds){
   dayDlg.onclick=e=>{
     if(e.target.closest('[data-close]'))return dayDlg.close();
     if(e.target.closest('[data-add]')){dayDlg.close();return openEdit(null,ds)}
-    if(e.target.closest('[data-shift]')){
-      if(confirm(`${d.getMonth()+1}/${d.getDate()} いこうの 1かいだけの よていを ぜんぶ 1にち うしろに ずらします。よいですか？\n（まいしゅう・へいじつの くりかえしは そのままです）`)){
-        state.events.forEach(x=>{if(x.repeat==='none'&&x.date>=ds)x.date=iso(addDays(parse(x.date),1))});
-        save();dayDlg.close();render();
-      }
-      return;
-    }
+    if(e.target.closest('[data-shift]')){dayDlg.close();return shiftAll(ds)}
     const r=e.target.closest('[data-ev]');
     if(r){dayDlg.close();openEdit(r.dataset.ev,ds)}
   };
   dayDlg.showModal();
 }
 
+/* このひから ぜんぶ 1にち ずらす (この たんまつの よてい + Googleの よてい) */
+async function shiftAll(ds){
+  const d=parse(ds);
+  const local=state.events.filter(x=>x.repeat==='none'&&x.date>=ds);
+  let gl=[];
+  if(GMODE()){
+    try{
+      if(!await gReady()){toast('Googleに つながりませんでした');return}
+      const j=await gApi(`calendars/${enc(gCalId)}/events?singleEvents=true&maxResults=250&orderBy=startTime&timeMin=${enc(d.toISOString())}&timeMax=${enc(addDays(d,365).toISOString())}`);
+      gl=(j.items||[]).filter(x=>x.status!=='cancelled'&&!x.recurringEventId);
+    }catch(err){toast('Googleの よみこみに しっぱいしました ('+err.message+')');return}
+  }
+  const n=local.length+gl.length;
+  if(!n){toast('ずらす よていが ありません');return}
+  if(!confirm(`${d.getMonth()+1}/${d.getDate()} いこうの ${n}けんの よていを 1にち うしろに ずらします。\n（まいしゅう・へいじつの くりかえしは そのままです）\nよいですか？`))return;
+  local.forEach(x=>{x.date=iso(addDays(parse(x.date),1))});
+  save();
+  let bad=false;
+  for(const x of gl){
+    const sh=o=>o.date?{date:iso(addDays(parse(o.date),1))}:{dateTime:new Date(new Date(o.dateTime).getTime()+864e5).toISOString(),timeZone:'Asia/Tokyo'};
+    try{await gReq('PATCH',`calendars/${enc(gCalId)}/events/${enc(x.id)}`,{start:sh(x.start),end:sh(x.end)})}catch(err){bad=true}
+  }
+  toast(bad?'Googleの いちぶが ずらせませんでした':`${n}けん ずらしました`);
+  gLast='';render();
+  if(gl.length)gSync(false);
+}
+
 /* edit */
 function openEdit(id,ds){
-  const ev=id?state.events.find(x=>x.id===id):null;
+  const ev=id?findEv(id,ds):null;
+  const isG=!!(ev&&ev.g), toG=!ev&&GMODE(), useG=isG||toG;
   let icon=ev?ev.icon:ICONS[0][0];
-  const rep=ev?ev.repeat:'none';
+  const rep=ev&&!isG?ev.repeat:'none';
+  const q=s=>editDlg.querySelector(s);
   editDlg.innerHTML=`<h2>${ev?'よていを なおす':'よていを たす'}</h2>
    <div class="picker">${ICONS.map(([e,t])=>`<button data-i="${e}" data-t="${t}" class="${e===icon?'on':''}"><span class="e">${e}</span><span class="t">${t}</span></button>`).join('')}</div>
    <label>なまえ<input id="fText" value="${esc(ev?ev.text:ICONS[0][1])}"></label>
-   <label>ひとこと メモ<input id="fMemo" value="${esc(ev?ev.memo:'')}" placeholder="れい：おくすりを もっていく"></label>
-   <label>${ev&&rep!=='none'?'はじまりの ひ':'ひにち'}<input type="date" id="fDate" value="${ev?ev.date:ds}"></label>
-   <label>くりかえし<select id="fRep">
+   <label>ひとこと メモ<input id="fMemo" value="${esc(ev?(isG?(ev.desc||''):ev.memo):'')}" placeholder="れい：おくすりを もっていく"></label>
+   <label>${ev&&!isG&&rep!=='none'?'はじまりの ひ':'ひにち'}<input type="date" id="fDate" value="${ev&&!isG?ev.date:ds}"></label>
+   ${useG?`<label>じかん（なくても OK）<input type="time" id="fTime" value="${esc((ev&&ev.time)||'')}"></label>`:''}
+   ${isG?(ev.rec?'<div class="hint">🔁 くりかえしの よていです。ここで なおす・けすのは この日だけです。</div>':''):`<label>くりかえし<select id="fRep">
      <option value="none">なし（そのひだけ）</option>
      <option value="weekly">まいしゅう おなじ ようび</option>
-     <option value="weekdays">へいじつ まいにち（げつ〜きん）</option></select></label>
-   ${ev&&rep!=='none'?'<div class="hint">くりかえしの よていです。このひだけ かえるときは したの ボタンを つかってね。</div>':''}
+     <option value="weekdays">へいじつ まいにち（げつ〜きん）</option></select></label>`}
+   ${ev&&!isG&&rep!=='none'?'<div class="hint">くりかえしの よていです。このひだけ かえるときは したの ボタンを つかってね。</div>':''}
+   <div class="hint">${useG?'📅 Googleカレンダー「'+GCAL+'」に ほぞんされます':'📱 この たんまつ だけに ほぞんされます'+(GMODE()?'':'（Googleと つなぐと Googleにも ほぞんできます）')}</div>
    <div class="btns">
     <button class="btn pri" data-save>ほぞん</button>
     ${ev?'<button class="btn blue" data-next>あしたへ うつす</button>':''}
-    ${ev&&rep!=='none'?'<button class="btn blue" data-skip>このひだけ なし</button>':''}
+    ${ev&&!isG&&rep!=='none'?'<button class="btn blue" data-skip>このひだけ なし</button>':''}
+    ${ev&&!isG&&GMODE()?'<button class="btn ok" data-togoogle>Googleへ うつす</button>':''}
     ${ev?'<button class="btn warn" data-del>けす</button>':''}
     <button class="btn" data-close>キャンセル</button></div>`;
-  editDlg.querySelector('#fRep').value=rep;
+  const fr=q('#fRep');if(fr)fr.value=rep;
+  const done=p=>p.then(ok=>{if(ok){editDlg.close();render()}});
   editDlg.onclick=e=>{
     const p=e.target.closest('.picker button');
     if(p){
-      const t=editDlg.querySelector('#fText');
+      const t=q('#fText');
       const old=ICONS.find(x=>x[0]===icon);
       if(!t.value||(old&&t.value===old[1]))t.value=p.dataset.t;
       icon=p.dataset.i;
@@ -352,20 +392,41 @@ function openEdit(id,ds){
     }
     if(e.target.closest('[data-close]'))return editDlg.close();
     if(e.target.closest('[data-save]')){
-      const date=editDlg.querySelector('#fDate').value||ds;
-      const data={icon,text:editDlg.querySelector('#fText').value.trim()||'よてい',memo:editDlg.querySelector('#fMemo').value.trim(),
-        date,repeat:editDlg.querySelector('#fRep').value};
+      const date=q('#fDate').value||ds;
+      const text=q('#fText').value.trim()||'よてい', memo=q('#fMemo').value.trim();
+      const rp=q('#fRep')?q('#fRep').value:'none';
+      if(useG){
+        const body=gBody({text,icon,desc:memo,date,time:q('#fTime').value||''});
+        if(isG)return done(gWrite(()=>gReq('PATCH',`calendars/${enc(gCalId)}/events/${enc(ev.gid)}`,body),'Googleに ほぞんしました'));
+        if(rp!=='none')body.recurrence=[gRrule(rp)];
+        return done(gWrite(()=>gReq('POST',`calendars/${enc(gCalId)}/events`,clean(body)),'Googleに ほぞんしました'));
+      }
+      const data={icon,text,memo,date,repeat:rp};
       if(ev)Object.assign(ev,data);else state.events.push({id:'e'+Date.now()+Math.random().toString(36).slice(2,5),skip:[],...data});
       save();editDlg.close();render();return;
     }
     if(e.target.closest('[data-next]')){
       const nd=iso(addDays(parse(ds),1));
+      if(isG){
+        const body=gBody({text:ev.text,icon:ev.icon,desc:ev.desc,date:nd,time:ev.time||''});
+        return done(gWrite(()=>gReq('PATCH',`calendars/${enc(gCalId)}/events/${enc(ev.gid)}`,body),'あしたに うつしました'));
+      }
       if(ev.repeat==='none')ev.date=nd;
       else{ev.skip=ev.skip||[];ev.skip.push(ds);state.events.push({id:'e'+Date.now(),skip:[],icon:ev.icon,text:ev.text,memo:ev.memo,date:nd,repeat:'none'})}
       save();editDlg.close();render();return;
     }
     if(e.target.closest('[data-skip]')){ev.skip=ev.skip||[];ev.skip.push(ds);save();editDlg.close();render();return}
+    if(e.target.closest('[data-togoogle]')){
+      const body=gBody({text:ev.text,icon:ev.icon,desc:ev.memo,date:ev.repeat==='none'?ev.date:ds,time:''});
+      if(ev.repeat!=='none')body.recurrence=[gRrule(ev.repeat)];
+      return done(gWrite(async()=>{await gReq('POST',`calendars/${enc(gCalId)}/events`,clean(body));state.events=state.events.filter(x=>x!==ev);save()},'Googleに うつしました'));
+    }
     if(e.target.closest('[data-del]')){
+      if(isG){
+        if(confirm(ev.rec?'この日の くりかえしの よていを Googleカレンダーから けします。よいですか？':'この よていを Googleカレンダーから けします。よいですか？'))
+          done(gWrite(()=>gReq('DELETE',`calendars/${enc(gCalId)}/events/${enc(ev.gid)}`),'けしました'));
+        return;
+      }
       if(confirm(ev.repeat==='none'?'この よていを けします。よいですか？':'くりかえしの よていを ぜんぶ けします。よいですか？')){
         state.events=state.events.filter(x=>x!==ev);save();editDlg.close();render();
       }
@@ -374,13 +435,14 @@ function openEdit(id,ds){
   editDlg.showModal();
 }
 
-/* ===== Googleカレンダー連携(読み込み専用・「こども予定」カレンダーだけ) ===== */
+/* ===== Googleカレンダー連携(「こども予定」カレンダーだけを よむ・かく) ===== */
 const GKEY='mitoshi-gclient',GCACHE='mitoshi-gcache',GCAL='こども予定';
 const DEFAULT_CID='935073960582-9pbv1ukkv328r6cvhd3elr2ia37rgcc3.apps.googleusercontent.com';
+const GSCOPES=['https://www.googleapis.com/auth/calendar.readonly','https://www.googleapis.com/auth/calendar.events'];
 const gget=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 const gset=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}};
 let gEvents={};try{gEvents=JSON.parse(gget(GCACHE)||'{}')}catch(e){}
-let gToken=null,gExp=0,gStatus='',gCalId=null,gLast='',gBusy=false;
+let gToken=null,gExp=0,gStatus='',gCalId=null,gLast='',gBusy=false,gWriting=false;
 const G_ICONS=[['保育園|ほいくえん|幼稚園','🏫'],['歯|はいしゃ','🦷'],['病院|びょういん|クリニック|医院|小児科','🏥'],['キャンプ','⛺'],
  ['誕生日|たんじょうび','🎂'],['買い物|かいもの','🛒'],['プール|水泳','🏊'],['習い事|おけいこ|ピアノ|教室','🎵'],['電車|でんしゃ','🚃'],
  ['遊園地|ディズニー|USJ|ゆうえんち','🎡'],['ご飯|ランチ|ディナー|外食','🍽️'],['おばあちゃん|じいじ|ばあば|実家','👵'],
@@ -395,16 +457,65 @@ async function gConnect(silent){
   if(!cid){if(!silent)gStatus='さきに クライアントIDを いれてね';return false}
   try{await loadGis()}catch(e){if(!silent)gStatus='ネットに つながっていません';return false}
   return new Promise(res=>{
-    const tc=google.accounts.oauth2.initTokenClient({client_id:cid,scope:'https://www.googleapis.com/auth/calendar.readonly',
-      callback:r=>{if(r.access_token){gToken=r.access_token;gExp=Date.now()+(r.expires_in-60)*1000;gset('mitoshi-gon','1');res(true)}else{if(!silent)gStatus='つながりませんでした';res(false)}},
+    const tc=google.accounts.oauth2.initTokenClient({client_id:cid,scope:GSCOPES.join(' '),
+      callback:r=>{
+        if(r.access_token){
+          gToken=r.access_token;gExp=Date.now()+(r.expires_in-60)*1000;
+          const w=google.accounts.oauth2.hasGrantedAllScopes(r,...GSCOPES);
+          gset('mitoshi-gon',w?'w':'1');
+          if(!w&&!silent)gStatus='かきこみの きょかが ありません。もういちど「つなぐ」を おして、ぜんぶ きょかしてね';
+          res(true);
+        }else{if(!silent)gStatus='つながりませんでした';res(false)}
+      },
       error_callback:()=>{if(!silent)gStatus='つながりませんでした(ログインが とちゅうで とまりました)';res(false)}});
     tc.requestAccessToken({prompt:silent?'none':''});
   });
 }
-async function gApi(path){
-  const r=await fetch('https://www.googleapis.com/calendar/v3/'+path,{headers:{Authorization:'Bearer '+gToken}});
+async function gReq(method,path,body){
+  const r=await fetch('https://www.googleapis.com/calendar/v3/'+path,{method,headers:{Authorization:'Bearer '+gToken,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
   if(!r.ok)throw new Error('HTTP '+r.status);
-  return r.json();
+  return r.status===204?null:r.json();
+}
+const gApi=path=>gReq('GET',path);
+async function gReady(){
+  if(!gToken||Date.now()>gExp){if(!await gConnect(false))return false}
+  if(!gCalId){
+    const l=await gApi('users/me/calendarList?maxResults=250');
+    const c=(l.items||[]).find(x=>(x.summary||'').includes(GCAL));
+    if(!c){gStatus=`「${GCAL}」という名前の カレンダーが みつかりません`;return false}
+    gCalId=c.id;
+  }
+  return true;
+}
+const clean=o=>JSON.parse(JSON.stringify(o,(k,v)=>v===null?undefined:v));
+const gRrule=rp=>rp==='weekdays'?'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR':'RRULE:FREQ=WEEKLY';
+function gBody(d){
+  const b={summary:d.text,description:d.desc||'',extendedProperties:{private:{icon:d.icon}}};
+  if(d.time){
+    const [h,m]=d.time.split(':').map(Number);
+    const e=parse(d.date);e.setHours(h+1,m);
+    b.start={dateTime:`${d.date}T${d.time}:00`,timeZone:'Asia/Tokyo',date:null};
+    b.end={dateTime:`${iso(e)}T${pad(e.getHours())}:${pad(e.getMinutes())}:00`,timeZone:'Asia/Tokyo',date:null};
+  }else{
+    b.start={date:d.date,dateTime:null,timeZone:null};
+    b.end={date:iso(addDays(parse(d.date),1)),dateTime:null,timeZone:null};
+  }
+  return b;
+}
+/* Googleへ かく。せいこう=true / しっぱい=false */
+async function gWrite(fn,okMsg){
+  if(gWriting)return false;
+  gWriting=true;
+  let ok=false;
+  try{
+    if(!await gReady()){toast('Googleに つながりませんでした。「📅 Google」から つないでね')}
+    else{await fn();ok=true;toast(okMsg)}
+  }catch(err){
+    if(/40[13]/.test(err.message)){gToken=null;toast('Googleに かきこめませんでした。「📅 Google」→「つなぐ」で かきこみの きょかを してね')}
+    else toast('うまく いきませんでした ('+err.message+')');
+  }finally{gWriting=false}
+  if(ok){gLast='';gSync(false)}
+  return ok;
 }
 function gRange(){
   const first=new Date(cursor.getFullYear(),cursor.getMonth(),1);
@@ -416,27 +527,23 @@ async function gSync(silent){
   if(gBusy)return;
   gBusy=true;gLastAt=Date.now();
   try{
-    if(!gToken||Date.now()>gExp){if(!await gConnect(silent)){return}}
-    if(!gCalId){
-      const l=await gApi('users/me/calendarList?maxResults=250');
-      const c=(l.items||[]).find(x=>(x.summary||'').includes(GCAL));
-      if(!c){gStatus=`「${GCAL}」という名前の カレンダーが みつかりません`;return}
-      gCalId=c.id;
-    }
+    if(!await gReady())return;
     const [s,e]=gRange();
     gLast=iso(s)+iso(e);
-    const q=`singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(s.toISOString())}&timeMax=${encodeURIComponent(e.toISOString())}`;
-    const j=await gApi(`calendars/${encodeURIComponent(gCalId)}/events?${q}`);
+    const q=`singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${enc(s.toISOString())}&timeMax=${enc(e.toISOString())}`;
+    const j=await gApi(`calendars/${enc(gCalId)}/events?${q}`);
     for(let d=new Date(s);d<e;d=addDays(d,1))delete gEvents[iso(d)];
     for(const ev of j.items||[]){
       if(ev.status==='cancelled')continue;
       const title=ev.summary||'よてい';
-      const base={id:'g:'+ev.id,icon:gIcon(title),text:title};
+      const pv=(ev.extendedProperties&&ev.extendedProperties.private)||{};
+      const base={id:'g:'+ev.id,gid:ev.id,g:true,repeat:'none',icon:pv.icon||gIcon(title),text:title,desc:ev.description||'',rec:!!ev.recurringEventId};
       if(ev.start.date){
-        for(let d=parse(ev.start.date);d<parse(ev.end.date);d=addDays(d,1))(gEvents[iso(d)]=gEvents[iso(d)]||[]).push({...base,memo:''});
+        for(let d=parse(ev.start.date);d<parse(ev.end.date);d=addDays(d,1))(gEvents[iso(d)]=gEvents[iso(d)]||[]).push({...base,date:iso(d),time:'',memo:base.desc});
       }else if(ev.start.dateTime){
         const st=new Date(ev.start.dateTime);
-        (gEvents[iso(st)]=gEvents[iso(st)]||[]).push({...base,memo:`${st.getHours()}:${pad(st.getMinutes())}〜`});
+        const hm=`${pad(st.getHours())}:${pad(st.getMinutes())}`;
+        (gEvents[iso(st)]=gEvents[iso(st)]||[]).push({...base,date:iso(st),time:hm,memo:[`${st.getHours()}:${pad(st.getMinutes())}〜`,base.desc].filter(Boolean).join(' ')});
       }
     }
     gset(GCACHE,JSON.stringify(gEvents));
@@ -447,9 +554,9 @@ async function gSync(silent){
     if(String(err.message).includes('401')){gToken=null}
   }finally{gBusy=false;if(gDlg.open)openG()}
 }
-/* じどうどうき: ひらいたとき・もどったとき・5ふんごと(いちど つないだあとだけ) */
+/* じどうどうき: ひらいたとき・もどったとき・5ふんごと(かきこみの きょかが ある ときだけ) */
 function gSoft(){
-  if(!gget('mitoshi-gon')||gBusy||Date.now()-gLastAt<60000)return;
+  if(!GMODE()||gBusy||gWriting||Date.now()-gLastAt<60000)return;
   gSync(true);
 }
 function gAuto(){
@@ -457,12 +564,12 @@ function gAuto(){
   const [s,e]=gRange();
   if(gLast!==iso(s)+iso(e))gSync();
 }
-const gDlg=document.getElementById('gDlg');
 function openG(){
+  const st=gget('mitoshi-gon');
   gDlg.innerHTML=`<h2>📅 Googleカレンダーと つなぐ</h2>
-   <p class="hint" style="margin-top:0">Googleカレンダーの「${GCAL}」という名前のカレンダーを、読むだけで つなぎます。アプリから Googleの予定を 変えることは ありません。</p>
+   <p class="hint" style="margin-top:0">Googleカレンダーの「${GCAL}」という名前のカレンダーと つなぎます。アプリで たす・なおす・うつす・けす と、Googleの「${GCAL}」も かわります。ほかの カレンダーは さわりません。</p>
    <label>クライアントID<input id="gCid" value="${esc(gget(GKEY)||DEFAULT_CID)}" placeholder="xxxx.apps.googleusercontent.com"></label>
-   <p class="hint">${esc(gStatus||(gToken?'つながっています':'まだ つながっていません'))}</p>
+   <p class="hint">${esc(gStatus||(st==='w'?'つながっています(かきこみ OK)':st==='1'?'よみこみだけ きょかされています。「つなぐ」を おして かきこみも きょかしてね':'まだ つながっていません'))}</p>
    <div class="btns">
     <button class="btn pri" data-gsync>つなぐ / どうきする</button>
     <button class="btn warn" data-goff>つなぎを やめる</button>
